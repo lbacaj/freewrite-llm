@@ -2,7 +2,7 @@
 
 A minimalist macOS freewriting app enhanced with local AI capabilities. Built with SwiftUI and powered by MLX for on-device language models.
 
-> This is a fork of the original [Freewrite](https://github.com/BUILD-UNKOWN/freewrite) by Farza Majeed, enhanced with local LLM processing capabilities while maintaining the core philosophy of distraction-free writing.
+> This is a fork of the original [Freewrite](https://github.com/farzaa/freewrite) by Farza Majeed, enhanced with local LLM processing capabilities while maintaining the core philosophy of distraction-free writing.
 
 ## Features
 
@@ -83,7 +83,7 @@ Freewrite is built on the principle of continuous, unedited writing. The AI feat
 
 ## Credits
 
-This is a fork of the original [Freewrite](https://github.com/BUILD-UNKOWN/freewrite) app by Farza Majeed.
+This is a fork of the original [Freewrite](https://github.com/farzaa/freewrite) app by Farza Majeed.
 
 - Original Freewrite concept and implementation: Farza Majeed
 - LLM integration and enhancements: Added in this fork
