@@ -97,7 +97,9 @@ struct ContentView: View {
     @State private var processingLLMForEntry: UUID? = nil
     @State private var llmResults: [UUID: String] = [:] // Pass ID to result text
     @State private var llmProcessingStatus: [UUID: Bool] = [:] // Pass ID to processing status
+    @State private var cachedLLMResults: [UUID: [UUID: String]] = [:] // Entry ID -> (Pass ID -> result)
     @State private var hoveredLLMButtonId: String? = nil
+    @State private var currentProcessingEntry: HumanEntry? = nil
     @ObservedObject private var modelManager = LLMModelManager.shared
     @ObservedObject private var passStore = PassStore.shared
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -1149,7 +1151,12 @@ struct ContentView: View {
             LLMResultSheet(
                 passes: passStore.passes,
                 results: $llmResults,
-                processingStatus: $llmProcessingStatus
+                processingStatus: $llmProcessingStatus,
+                onRefresh: {
+                    if let entry = currentProcessingEntry {
+                        processAllLLMPasses(entry: entry, forceReprocess: true)
+                    }
+                }
             )
         }
     }
@@ -1192,6 +1199,11 @@ struct ContentView: View {
             try text.write(to: fileURL, atomically: true, encoding: .utf8)
             print("Successfully saved entry: \(entry.filename)")
             updatePreviewText(for: entry)  // Update preview after saving
+            
+            // Save LLM results if they exist for this entry
+            if !llmResults.isEmpty {
+                saveLLMResults(for: entry)
+            }
         } catch {
             print("Error saving entry: \(error)")
         }
@@ -1205,6 +1217,9 @@ struct ContentView: View {
             if fileManager.fileExists(atPath: fileURL.path) {
                 text = try String(contentsOf: fileURL, encoding: .utf8)
                 print("Successfully loaded entry: \(entry.filename)")
+                
+                // Load cached LLM results for this entry
+                loadLLMResults(for: entry)
             }
         } catch {
             print("Error loading entry: \(error)")
@@ -1499,7 +1514,69 @@ extension NSView {
 // MARK: - LLM Processing
 
 extension ContentView {
-    private func processAllLLMPasses(entry: HumanEntry) {
+    private func saveLLMResults(for entry: HumanEntry) {
+        let documentsDirectory = getDocumentsDirectory()
+        let resultsURL = documentsDirectory.appendingPathComponent("\(entry.id.uuidString)_llm_results.json")
+        
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            
+            // Convert UUID keys to String for JSON encoding
+            let stringKeyedResults = llmResults.reduce(into: [String: String]()) { result, pair in
+                result[pair.key.uuidString] = pair.value
+            }
+            
+            let data = try encoder.encode(stringKeyedResults)
+            try data.write(to: resultsURL)
+            
+            // Cache the results
+            cachedLLMResults[entry.id] = llmResults
+            
+            print("Successfully saved LLM results for entry: \(entry.id)")
+        } catch {
+            print("Error saving LLM results: \(error)")
+        }
+    }
+    
+    private func loadLLMResults(for entry: HumanEntry) {
+        // First check if we have cached results
+        if let cached = cachedLLMResults[entry.id] {
+            llmResults = cached
+            return
+        }
+        
+        let documentsDirectory = getDocumentsDirectory()
+        let resultsURL = documentsDirectory.appendingPathComponent("\(entry.id.uuidString)_llm_results.json")
+        
+        do {
+            if fileManager.fileExists(atPath: resultsURL.path) {
+                let data = try Data(contentsOf: resultsURL)
+                let decoder = JSONDecoder()
+                let stringKeyedResults = try decoder.decode([String: String].self, from: data)
+                
+                // Convert String keys back to UUID
+                llmResults = stringKeyedResults.reduce(into: [UUID: String]()) { result, pair in
+                    if let uuid = UUID(uuidString: pair.key) {
+                        result[uuid] = pair.value
+                    }
+                }
+                
+                // Cache the results
+                cachedLLMResults[entry.id] = llmResults
+                
+                print("Successfully loaded LLM results for entry: \(entry.id)")
+            } else {
+                // No saved results, clear current results
+                llmResults.removeAll()
+            }
+        } catch {
+            print("Error loading LLM results: \(error)")
+            llmResults.removeAll()
+        }
+    }
+    
+    private func processAllLLMPasses(entry: HumanEntry, forceReprocess: Bool = false) {
         // Check if any model is downloaded
         guard !modelManager.downloadedModels.isEmpty else {
             showLLMDownloadSheet = true
@@ -1510,6 +1587,19 @@ extension ContentView {
         guard modelManager.selectedModel != nil else {
             showLLMDownloadSheet = true
             return
+        }
+        
+        // Store the current entry for refresh functionality
+        currentProcessingEntry = entry
+        
+        // Check if we have cached results and should use them
+        if !forceReprocess {
+            loadLLMResults(for: entry)
+            if !llmResults.isEmpty {
+                // We have cached results, just show them
+                showLLMResultSheet = true
+                return
+            }
         }
         
         // Get entry content
@@ -1541,13 +1631,13 @@ extension ContentView {
                         
                         // Handle built-in passes with specific methods
                         switch pass.id {
-                        case LLMPass.builtIns[0].id: // Summary
-                            result = try await LLMEngine.shared.summary(for: cleanedContent)
-                        case LLMPass.builtIns[1].id: // Core Ideas
+                        case LLMPass.builtIns[0].id: // Core Ideas (first now)
                             let ideas = try await LLMEngine.shared.keyIdeas(for: cleanedContent)
                             result = ideas.map { "• \($0)" }.joined(separator: "\n")
-                        case LLMPass.builtIns[2].id: // Clean Up
+                        case LLMPass.builtIns[1].id: // Clean Up
                             result = try await LLMEngine.shared.cleanedText(from: cleanedContent)
+                        case LLMPass.builtIns[2].id: // Writing Feedback (replaced Summary)
+                            result = try await LLMEngine.shared.writingFeedback(for: cleanedContent)
                         default: // Custom passes
                             result = try await LLMEngine.shared.runCustomPrompt(pass.prompt, text: cleanedContent)
                         }
@@ -1562,6 +1652,8 @@ extension ContentView {
                             }
                             if allDone {
                                 processingLLMForEntry = nil
+                                // Save the results when all processing is complete
+                                saveLLMResults(for: entry)
                             }
                         }
                     } catch {

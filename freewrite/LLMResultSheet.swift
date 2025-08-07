@@ -12,6 +12,7 @@ struct LLMResultSheet: View {
     let passes: [LLMPass]
     @Binding var results: [UUID: String]
     @Binding var processingStatus: [UUID: Bool]
+    var onRefresh: (() -> Void)?
     
     @State private var selectedPassId: UUID?
     @State private var editedTexts: [UUID: String] = [:]
@@ -24,6 +25,21 @@ struct LLMResultSheet: View {
                 Text("AI Processing Results")
                     .font(.system(size: 20, weight: .semibold))
                 Spacer()
+                
+                // Refresh button
+                if let onRefresh = onRefresh {
+                    Button(action: {
+                        onRefresh()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Reprocess with AI")
+                    .disabled(processingStatus.values.contains(true))
+                }
+                
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 22))

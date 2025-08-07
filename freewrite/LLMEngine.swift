@@ -230,6 +230,37 @@ public final class LLMEngine {
 #endif
     }
     
+    public func writingFeedback(for text: String) async throws -> String {
+#if canImport(MLX)
+        let prompt = """
+        Provide constructive feedback on this writing using the CRIBS framework (Confusing, Repeated, Interesting, Boring, Surprising). Focus on the writing quality and clarity of thought, not grammar or syntax. If this appears to be a journal entry, also provide feedback on the clarity and coherence of the thoughts expressed. Format your response as follows:
+
+        ## Strengths
+        - What works well in this writing
+
+        ## Areas for Improvement
+        - Confusing: Any unclear or ambiguous sections
+        - Repeated: Redundant ideas or phrases
+        - Boring: Parts that lose engagement
+
+        ## Notable Elements
+        - Interesting: Engaging or compelling parts
+        - Surprising: Unexpected insights or turns
+
+        ## Overall Feedback
+        Brief constructive advice for improving the writing
+
+        Text:
+        \(text)
+
+        Feedback:
+        """
+        return try await run(prompt: prompt, maxTokens: 1024)
+#else
+        return ""
+#endif
+    }
+    
     // MARK: – Custom passes
     
     /// Execute an arbitrary user-supplied prompt.  The text will be
